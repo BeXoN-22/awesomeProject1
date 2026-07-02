@@ -29,12 +29,12 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
-      # 4. golangci-lint — запускает ~50 линтеров одной командой
-      #    Конфиг берётся из .golangci.yml в корне репо
+      # 4. golangci-lint — устанавливаем через go install чтобы он собрался
+      #    с той же версией Go что и проект (иначе падает на несовместимости версий)
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          golangci-lint run ./...
 
       # 5. Тесты с флагом -race — обнаруживает гонки данных в горутинах
       #    ./... означает "все пакеты рекурсивно"
