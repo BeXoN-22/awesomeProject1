@@ -1,0 +1,25 @@
+linters:
+  enable:
+    - errcheck      # нельзя игнорировать ошибки: if err != nil обязательно
+    - gosimple      # упрощение кода: x = x + 1 → x++
+    - govet         # то же что go vet (дубль для единообразия)
+    - ineffassign   # переменная присвоена но не используется: a := 1; a = 2 (первое бесполезно)
+    - staticcheck   # глубокий анализ: deprecated API, ненужные преобразования
+    - unused        # нет неиспользуемых экспортируемых символов
+
+linters-settings:
+  errcheck:
+    # Разрешаем игнорировать ошибки только у fmt.Print* и .Close()
+    # Потому что в тестах часто пишем fmt.Println без проверки ошибки
+    exclude-functions:
+      - fmt.Print
+      - fmt.Println
+      - fmt.Printf
+      - (io.Closer).Close
+
+issues:
+  # Не проверять файлы тестов на unused — в тестах бывают вспомогательные функции
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - unused

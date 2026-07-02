@@ -1,0 +1,16 @@
+# Личные заметки Claude Code
+.claude/
+
+# Бинарники
+awesomeProject1
+
+# Данные БД — не в публичный репо
+dump.sql
+
+# IDE
+.idea/
+.DS_Store
+
+# Переменные окружения (пароли, ключи)
+.env
+*.env

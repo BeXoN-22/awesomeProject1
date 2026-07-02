@@ -1,0 +1,42 @@
+name: CI
+
+# Когда запускается: при каждом PR и при пуше в main
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    name: Vet + Lint + Test
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Скачать код репозитория на сервер GitHub
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Установить Go — версия берётся из go.mod автоматически
+      # cache: true сохраняет скачанные модули между запусками (быстрее)
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # 3. go vet — встроенный анализатор: подозрительные вызовы Printf,
+      #    недостижимый код, неправильные теги struct и т.д.
+      - name: Run go vet
+        run: go vet ./...
+
+      # 4. golangci-lint — запускает ~50 линтеров одной командой
+      #    Конфиг берётся из .golangci.yml в корне репо
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+      # 5. Тесты с флагом -race — обнаруживает гонки данных в горутинах
+      #    ./... означает "все пакеты рекурсивно"
+      - name: Run tests with race detector
+        run: go test -race ./...
