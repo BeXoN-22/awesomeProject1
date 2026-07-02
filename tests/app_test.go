@@ -1,17 +1,17 @@
 package tests
 
-// TestCIVerification — намеренно провальный тест для проверки branch protection.
-// Этот тест должен сделать PR красным и заблокировать merge.
-func TestCIVerification(t *testing.T) {
-	t.Fatal("CI check: this test is intentionally failing to verify branch protection works")
-}
-
 import (
 	app "awesomeProject1/internal"
 	"errors"
 	"strings"
 	"testing"
 )
+
+// TestCIVerification — намеренно провальный тест для проверки branch protection.
+// Этот тест должен сделать PR красным и заблокировать merge.
+func TestCIVerification(t *testing.T) {
+	t.Fatal("CI check: this test is intentionally failing to verify branch protection works")
+}
 
 // TestCheckURLs_PrintsHeader — первая строка вывода содержит имя файла.
 func TestCheckURLs_PrintsHeader(t *testing.T) {
