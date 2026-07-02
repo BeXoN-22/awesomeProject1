@@ -18,8 +18,10 @@ linters-settings:
       - (io.Closer).Close
 
 issues:
-  # Не проверять файлы тестов на unused — в тестах бывают вспомогательные функции
+  # В тестах допустимо игнорировать ошибки — тест проверяет поведение через t.Error,
+  # а не через возврат ошибки из функции
   exclude-rules:
     - path: _test\.go
       linters:
         - unused
+        - errcheck
