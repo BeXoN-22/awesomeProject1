@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -68,6 +69,12 @@ func main() {
 	go scheduler.Run(ctx)
 
 	r := gin.New()
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:3000", "https://mimile.ai"},
+		AllowMethods:     []string{"GET", "DELETE"},
+		AllowHeaders:     []string{"Content-Type", "Authorization"},
+		AllowCredentials: true,
+	}))
 	r.Use(slogMiddleware(), gin.Recovery())
 
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
