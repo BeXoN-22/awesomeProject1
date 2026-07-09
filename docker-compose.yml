@@ -49,6 +49,32 @@ services:
     depends_on:
       - go-checker
 
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    depends_on:
+      - go-checker
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana-provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+
   # fastapi:
   #   build: ../your-python-project
   #   ports:
@@ -61,3 +87,5 @@ services:
 
 volumes:
   postgres_data:
+  prometheus_data:
+  grafana_data:

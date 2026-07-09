@@ -2,6 +2,7 @@ package main
 
 import (
 	"awesomeProject1/cache"
+	"awesomeProject1/health"
 	appmetrics "awesomeProject1/metrics"
 	"awesomeProject1/rss"
 	"awesomeProject1/urlcheck"
@@ -27,7 +28,10 @@ func main() {
 	if connStr == "" {
 		connStr = "postgres://mimile:mimile_secret@localhost:5433/mimile?sslmode=disable"
 	}
-	pool, err := pgxpool.New(context.Background(), connStr)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
 		slog.Error("не удалось создать пул БД", "error", err)
 		os.Exit(1)
@@ -45,10 +49,23 @@ func main() {
 	}
 	defer c.Close()
 
+	intervalStr := os.Getenv("HEALTH_INTERVAL")
+	if intervalStr == "" {
+		intervalStr = "5m"
+	}
+	healthInterval, err := time.ParseDuration(intervalStr)
+	if err != nil {
+		slog.Error("неверный HEALTH_INTERVAL", "value", intervalStr)
+		os.Exit(1)
+	}
+
 	gin.SetMode(gin.ReleaseMode)
 
 	myChecker := urlcheck.NewChecker()
 	var checkMu sync.Mutex
+
+	scheduler := health.NewScheduler(pool, myChecker, healthInterval)
+	go scheduler.Run(ctx)
 
 	r := gin.New()
 	r.Use(slogMiddleware(), gin.Recovery())
@@ -97,6 +114,15 @@ func main() {
 		ctx.JSON(http.StatusOK, stats)
 	})
 
+	r.GET("/health/sources", func(ctx *gin.Context) {
+		results, err := health.LatestBySource(ctx.Request.Context(), pool)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		ctx.JSON(http.StatusOK, results)
+	})
+
 	r.DELETE("/cache", func(ctx *gin.Context) {
 		if err := c.Invalidate(ctx.Request.Context()); err != nil {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -115,7 +141,9 @@ func main() {
 func slogMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		start := time.Now()
+		appmetrics.HTTPInFlight.Inc()
 		ctx.Next()
+		appmetrics.HTTPInFlight.Dec()
 
 		duration := time.Since(start)
 		method := ctx.Request.Method
