@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"awesomeProject1/urlcheck"
+	"github.com/mimile-ai/mimile/rss-checker/urlcheck"
 )
 
 func Run(filename string) error {
@@ -20,6 +20,7 @@ func Run(filename string) error {
 
 	return CheckURLs(filename, file, os.Stdout, urlcheck.NewChecker())
 }
+
 func CheckURLs(filename string, reader io.Reader, writer io.Writer, checker urlcheck.Checker) error {
 	fmt.Fprintf(writer, "--- Проверка сайтов из файла %s ---\n", filename)
 
@@ -37,6 +38,7 @@ func CheckURLs(filename string, reader io.Reader, writer io.Writer, checker urlc
 	}
 	return nil
 }
+
 func printResult(writer io.Writer, url string, statusCode int, err error) {
 	if err != nil {
 		fmt.Fprintf(writer, "❌ %s — Ошибка: %v\n", url, err)

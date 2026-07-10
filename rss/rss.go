@@ -1,14 +1,12 @@
 package rss
 
 import (
-	"awesomeProject1/metrics"
-	"awesomeProject1/urlcheck"
-	"fmt"
-	"io"
-	"os"
 	"strconv"
 	"sync"
-	"text/tabwriter"
+	"time"
+
+	"github.com/mimile-ai/mimile/rss-checker/metrics"
+	"github.com/mimile-ai/mimile/rss-checker/urlcheck"
 )
 
 type RSSSource struct {
@@ -19,47 +17,54 @@ type RSSSource struct {
 	Language string
 }
 
-func RSSSummary(source []RSSSource, checker urlcheck.Checker) error {
-	return RSSSummaryTo(os.Stdout, source, checker)
+type CheckResult struct {
+	SourceID   int       `json:"source_id"`
+	Name       string    `json:"name"`
+	URL        string    `json:"url"`
+	Language   string    `json:"language"`
+	Status     string    `json:"status"`
+	StatusCode int       `json:"status_code"`
+	LatencyMs  int64     `json:"latency_ms"`
+	CheckedAt  time.Time `json:"checked_at"`
+	Error      string    `json:"error,omitempty"`
 }
 
-func RSSSummaryTo(w io.Writer, source []RSSSource, checker urlcheck.Checker) error {
-	buffer := tabwriter.NewWriter(w, 0, 0, 3, ' ', tabwriter.Debug)
-	fmt.Fprintf(buffer, "ID\tNAME\tURL\tACTIVE\tLANGUAGE\tSTATUS\n")
-
-	type checkResult struct {
-		src    RSSSource
-		status string
-	}
-
-	results := make([]checkResult, len(source))
+func RSSSummary(sources []RSSSource, checker urlcheck.Checker) ([]CheckResult, error) {
+	results := make([]CheckResult, len(sources))
 	var wg sync.WaitGroup
 
-	for i, src := range source {
+	for i, src := range sources {
+		r := CheckResult{
+			SourceID:  src.ID,
+			Name:      src.Name,
+			URL:       src.URL,
+			Language:  src.Language,
+			CheckedAt: time.Now().UTC(),
+		}
 		if !src.IsActive {
-			results[i] = checkResult{src: src, status: "SKIP"}
+			r.Status = "SKIP"
+			results[i] = r
 			metrics.RSSCheckResults.WithLabelValues(src.Name, "SKIP").Inc()
 			continue
 		}
 		wg.Add(1)
-		go func(i int, src RSSSource) {
+		go func(i int, src RSSSource, r CheckResult) {
 			defer wg.Done()
-			res, err := checker.Check(src.URL)
-			status := strconv.Itoa(res)
+			start := time.Now()
+			code, err := checker.Check(src.URL)
+			r.LatencyMs = time.Since(start).Milliseconds()
+			r.CheckedAt = time.Now().UTC()
+			r.StatusCode = code
 			if err != nil {
-				status = "ERR"
+				r.Status = "ERR"
+				r.Error = err.Error()
+			} else {
+				r.Status = strconv.Itoa(code)
 			}
-			results[i] = checkResult{src: src, status: status}
-			metrics.RSSCheckResults.WithLabelValues(src.Name, status).Inc()
-		}(i, src)
+			results[i] = r
+			metrics.RSSCheckResults.WithLabelValues(src.Name, r.Status).Inc()
+		}(i, src, r)
 	}
 	wg.Wait()
-
-	for _, res := range results {
-		fmt.Fprintf(buffer, "%d\t%s\t%s\t%t\t%s\t%s\n",
-			res.src.ID, res.src.Name, res.src.URL,
-			res.src.IsActive, res.src.Language, res.status)
-	}
-	fmt.Fprintf(buffer, "Всего проверено источников: %d\n", len(source))
-	return buffer.Flush()
+	return results, nil
 }
