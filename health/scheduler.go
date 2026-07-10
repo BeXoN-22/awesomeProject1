@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"awesomeProject1/rss"
-	"awesomeProject1/urlcheck"
+	"github.com/mimile-ai/mimile/rss-checker/rss"
+	"github.com/mimile-ai/mimile/rss-checker/urlcheck"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

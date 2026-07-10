@@ -1,12 +1,9 @@
 package main
 
 import (
-	"awesomeProject1/cache"
-	"awesomeProject1/health"
-	appmetrics "awesomeProject1/metrics"
-	"awesomeProject1/rss"
-	"awesomeProject1/urlcheck"
 	"context"
+	"database/sql"
+	"embed"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,8 +14,18 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/mimile-ai/mimile/rss-checker/cache"
+	"github.com/mimile-ai/mimile/rss-checker/health"
+	appmetrics "github.com/mimile-ai/mimile/rss-checker/metrics"
+	"github.com/mimile-ai/mimile/rss-checker/rss"
+	"github.com/mimile-ai/mimile/rss-checker/urlcheck"
+	"github.com/pressly/goose/v3"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -31,6 +38,18 @@ func main() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	db, err := sql.Open("pgx", connStr)
+	if err != nil {
+		slog.Error("не удалось открыть БД для миграций", "error", err)
+		os.Exit(1)
+	}
+	goose.SetBaseFS(migrationsFS)
+	if err := goose.Up(db, "migrations"); err != nil {
+		slog.Error("миграции не прошли", "error", err)
+		os.Exit(1)
+	}
+	_ = db.Close()
 
 	pool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
@@ -54,6 +73,7 @@ func main() {
 	if intervalStr == "" {
 		intervalStr = "5m"
 	}
+
 	healthInterval, err := time.ParseDuration(intervalStr)
 	if err != nil {
 		slog.Error("неверный HEALTH_INTERVAL", "value", intervalStr)
@@ -71,7 +91,7 @@ func main() {
 	r := gin.New()
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000", "https://mimile.ai"},
-		AllowMethods:     []string{"GET", "DELETE"},
+		AllowMethods:     []string{"GET", "POST", "DELETE"},
 		AllowHeaders:     []string{"Content-Type", "Authorization"},
 		AllowCredentials: true,
 	}))
@@ -92,9 +112,12 @@ func main() {
 				return
 			}
 			defer checkMu.Unlock()
-			if err := rss.RSSSummary(srcs, myChecker); err != nil {
+			results, err := rss.RSSSummary(srcs, myChecker)
+			if err != nil {
 				slog.Error("RSSSummary failed", "error", err)
+				return
 			}
+			saveCheckResults(context.Background(), pool, results)
 		}(sources)
 
 		ctx.JSON(http.StatusOK, gin.H{
@@ -121,6 +144,27 @@ func main() {
 		ctx.JSON(http.StatusOK, stats)
 	})
 
+	r.POST("/checks/sources/run", func(ctx *gin.Context) {
+		if !checkMu.TryLock() {
+			ctx.JSON(http.StatusConflict, gin.H{"status": "check already running"})
+			return
+		}
+		defer checkMu.Unlock()
+
+		sources, _, err := loadSources(ctx.Request.Context(), pool, c)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		results, err := rss.RSSSummary(sources, myChecker)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		saveCheckResults(ctx.Request.Context(), pool, results)
+		ctx.JSON(http.StatusOK, results)
+	})
+
 	r.GET("/health/sources", func(ctx *gin.Context) {
 		results, err := health.LatestBySource(ctx.Request.Context(), pool)
 		if err != nil {
@@ -128,6 +172,33 @@ func main() {
 			return
 		}
 		ctx.JSON(http.StatusOK, results)
+	})
+
+	r.GET("/health/sources/:id/history", func(ctx *gin.Context) {
+		id, err := strconv.Atoi(ctx.Param("id"))
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid source id"})
+			return
+		}
+		limit, err := strconv.Atoi(ctx.DefaultQuery("limit", "50"))
+		if err != nil || limit < 1 || limit > 500 {
+			limit = 50
+		}
+		results, err := health.HistoryBySource(ctx.Request.Context(), pool, id, limit)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		ctx.JSON(http.StatusOK, results)
+	})
+
+	r.GET("/health/summary", func(ctx *gin.Context) {
+		summary, err := health.Summary(ctx.Request.Context(), pool)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		ctx.JSON(http.StatusOK, summary)
 	})
 
 	r.DELETE("/cache", func(ctx *gin.Context) {
@@ -208,4 +279,23 @@ func loadSources(ctx context.Context, pool *pgxpool.Pool, c *cache.Cache) ([]rss
 	_ = c.SetSources(ctx, sources)
 
 	return sources, false, nil
+}
+
+func saveCheckResults(ctx context.Context, pool *pgxpool.Pool, results []rss.CheckResult) {
+	for _, r := range results {
+		if r.Status == "SKIP" {
+			continue
+		}
+		hr := health.CheckResult{
+			SourceID:  r.SourceID,
+			CheckedAt: r.CheckedAt,
+			OK:        r.Error == "" && r.StatusCode >= 200 && r.StatusCode < 400,
+			HTTPCode:  r.StatusCode,
+			LatencyMs: r.LatencyMs,
+			Error:     r.Error,
+		}
+		if err := health.SaveResult(ctx, pool, hr); err != nil {
+			slog.Error("failed to save check result", "source_id", r.SourceID, "error", err)
+		}
+	}
 }

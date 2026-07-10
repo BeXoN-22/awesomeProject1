@@ -1,7 +1,7 @@
 package tests
 
 import (
-	"awesomeProject1/urlcheck"
+	"github.com/mimile-ai/mimile/rss-checker/urlcheck"
 	"net/http"
 	"net/http/httptest"
 	"strings"

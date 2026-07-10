@@ -1,7 +1,7 @@
 package cache
 
 import (
-	"awesomeProject1/rss"
+	"github.com/mimile-ai/mimile/rss-checker/rss"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	SourcesKey      = "sources:list"
-	SourcesTTL      = 5 * time.Minute
+	SourcesKey       = "sources:list"
+	SourcesTTL       = 5 * time.Minute
 	PipelineStatsKey = "stats:pipeline"
 )
 
@@ -65,8 +65,6 @@ func (c *Cache) Invalidate(ctx context.Context) error {
 	return c.rdb.Del(ctx, SourcesKey).Err()
 }
 
-// GetPipelineStats reads stats:pipeline hash written by Madiar's Celery task (~15 min cadence).
-// Returns nil map (not error) when the key doesn't exist yet.
 func (c *Cache) GetPipelineStats(ctx context.Context) (map[string]string, error) {
 	result, err := c.rdb.HGetAll(ctx, PipelineStatsKey).Result()
 	if err != nil {

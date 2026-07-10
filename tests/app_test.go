@@ -1,7 +1,7 @@
 package tests
 
 import (
-	app "awesomeProject1/internal"
+	app "github.com/mimile-ai/mimile/rss-checker/internal"
 	"errors"
 	"strings"
 	"testing"
